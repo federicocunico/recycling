@@ -7,63 +7,63 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from pdf2image import convert_from_path
+
 os.environ["TESSDATA_PREFIX"] = os.getcwd()
 
 from pytesseract import Output
 import pytesseract
 
 # DEBUG CONFIGS
-winname = 'window'
+winname = "window"
 DEBUG = False
 
 # PDF CONFIGS
 curr_file = os.path.join("data", "2021.pdf")
 months = {
-    '0': "01_Gennaio",  # "Gennaio",
-    '1': "02_Febbraio",  # "Febbraio",
-    '2': "03_Marzo",  # "Marzo",
-    '3': "04_Aprile",  # "Aprile",
-    '4': "05_Maggio",  # "Maggio",
-    '5': "06_Giugno",  # "Giugno",
-    '6': "07_Luglio",  # "Luglio",
-    '7': "08_Agosto",  # "Agosto",
-    '8': "09_Settembre",  # "Settembre",
-    '9': "10_Ottobre",  # "Ottobre",
-    '10': "11_Novembre",  # "Novembre",
-    '11': "12_Dicembre",  # "Dicembre",
+    "0": "01_Gennaio",  # "Gennaio",
+    "1": "02_Febbraio",  # "Febbraio",
+    "2": "03_Marzo",  # "Marzo",
+    "3": "04_Aprile",  # "Aprile",
+    "4": "05_Maggio",  # "Maggio",
+    "5": "06_Giugno",  # "Giugno",
+    "6": "07_Luglio",  # "Luglio",
+    "7": "08_Agosto",  # "Agosto",
+    "8": "09_Settembre",  # "Settembre",
+    "9": "10_Ottobre",  # "Ottobre",
+    "10": "11_Novembre",  # "Novembre",
+    "11": "12_Dicembre",  # "Dicembre",
 }
 
 days_by_months = {
-    '0': 31,
-    '1': 29,  # Always extract, eventually do not use.
-    '2': 31,
-    '3': 30,
-    '4': 31,
-    '5': 30,
-    '6': 31,
-    '7': 31,
-    '8': 30,
-    '9': 31,
-    '10': 30,
-    '11': 31,
+    "0": 31,
+    "1": 29,  # Always extract, eventually do not use.
+    "2": 31,
+    "3": 30,
+    "4": 31,
+    "5": 30,
+    "6": 31,
+    "7": 31,
+    "8": 30,
+    "9": 31,
+    "10": 30,
+    "11": 31,
 }
 
-keywords = [
-    "umido",
-    "secco",
-    "plastica",
-    "carta",
-    "verde"
-]
+keywords = ["umido", "secco", "plastica", "carta", "verde"]
 
 weekdays = [
-    "lunedì", "lunedi",
-    "martedì", "martedi",
-    "mercoledì", "mercoledi",
-    "giovedì", "giovedi",
-    "venerdì", "venerdi",
+    "lunedì",
+    "lunedi",
+    "martedì",
+    "martedi",
+    "mercoledì",
+    "mercoledi",
+    "giovedì",
+    "giovedi",
+    "venerdì",
+    "venerdi",
     "sabato",
-    "domenica"
+    "domenica",
 ]
 weekdays_forward_search = [
     "lunedì",
@@ -109,7 +109,8 @@ weekdays_backward_search = [
 # 2. Legacy + LSTM engines.
 # 3. Default, based on what is available.
 
-custom_config = r'--oem 3 --psm 3 --dpi 300'
+day_ocr_config = r"--oem 3 --psm 3 --dpi 300"
+waste_ocr_config = r"--oem 3 --psm 7 --dpi 300"
 min_conf = 0
 
 
@@ -136,16 +137,22 @@ def extract_pages(pdf_file: str, dst: str):
         #     m = i
         m = i
         _ = os.path.join(dst, f"{m}.jpg")
-        page.save(_, 'JPEG')
+        page.save(_, "JPEG")
         idx += 1
 
 
 def get_files_from(directory: str):
-    return sorted([os.path.join(directory, f) for f in os.listdir(
-        directory) if os.path.isfile(os.path.join(directory, f))], key=len)
+    return sorted(
+        [
+            os.path.join(directory, f)
+            for f in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, f))
+        ],
+        key=len,
+    )
 
 
-def extract_crops(src: str, dst: str):
+def extract_crops(src: str, dst: str, force=False):
 
     images = get_files_from(src)
 
@@ -179,6 +186,8 @@ def extract_crops(src: str, dst: str):
         for day in range(0, day_max_count):
 
             f = os.path.join(new_folder, f"{day}.jpg")
+            if os.path.exists(f) and not force:
+                continue
 
             if top is None:
                 top = day_starting_topleft
@@ -188,15 +197,15 @@ def extract_crops(src: str, dst: str):
             print("righe: da ", top, " a ", bottom)
             crop = img[top:bottom, fixed_left_start:fixed_stop_right, :]
             if 0 in crop.shape:
-                print('Reached End of Image')
+                print("Reached End of Image")
                 break
             top = bottom
 
-            cv2.imshow(winname, cv2.resize(
-                crop, (crop.shape[1] // 2, crop.shape[0] // 2))
+            cv2.imshow(
+                winname, cv2.resize(crop, (crop.shape[1] // 2, crop.shape[0] // 2))
             )
             q = cv2.waitKey(1)
-            if q == ord('q'):
+            if q == ord("q"):
                 break
 
             # COLOR
@@ -208,7 +217,7 @@ def extract_crops(src: str, dst: str):
             break
 
 
-def extract_words(crop_dir: str, words_dir: str):
+def extract_words_old(crop_dir: str, words_dir: str):
 
     data = {}
 
@@ -232,13 +241,18 @@ def extract_words(crop_dir: str, words_dir: str):
 
             gray_image = np.asarray(Image.open(crop))
             threshold_img = cv2.threshold(
-                gray_image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+                gray_image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+            )[1]
 
-            cv2.imshow(winname, cv2.resize(
-                threshold_img, (threshold_img.shape[1] // 2, threshold_img.shape[0] // 2))
+            cv2.imshow(
+                winname,
+                cv2.resize(
+                    threshold_img,
+                    (threshold_img.shape[1] // 2, threshold_img.shape[0] // 2),
+                ),
             )
             k = cv2.waitKey(1)
-            if k == ord('q'):
+            if k == ord("q"):
                 break
 
             # perform OCR
@@ -246,9 +260,11 @@ def extract_words(crop_dir: str, words_dir: str):
                 details = pytesseract.image_to_data(
                     threshold_img,
                     output_type=Output.DICT,
-                    config=custom_config, lang='ita')
+                    config=day_ocr_config,
+                    lang="ita",
+                )
             except Exception as e:
-                print('Unable to extract some data!', e)
+                print("Unable to extract some data!", e)
                 continue
 
             # print(details)
@@ -256,12 +272,12 @@ def extract_words(crop_dir: str, words_dir: str):
             img = threshold_img
 
             # Get detection details
-            texts = details['text']
-            confs = details['conf']
-            bboxes_top_coords = details['top']
-            bboxes_left_coords = details['left']
-            bboxes_width = details['width']
-            bboxes_height = details['height']
+            texts = details["text"]
+            confs = details["conf"]
+            bboxes_top_coords = details["top"]
+            bboxes_left_coords = details["left"]
+            bboxes_width = details["width"]
+            bboxes_height = details["height"]
 
             # Filter by confidence
             if max([int(c) for c in confs]) < 0:
@@ -281,7 +297,8 @@ def extract_words(crop_dir: str, words_dir: str):
                     conf = int(conf)
                 except:
                     print(
-                        f'Unable to get confidence as integer, skipping. Value: \"{conf}\"')
+                        f'Unable to get confidence as integer, skipping. Value: "{conf}"'
+                    )
                     conf = 0
                 if conf < min_conf:
                     continue
@@ -320,20 +337,227 @@ def extract_words(crop_dir: str, words_dir: str):
 
             data[month][day_num] = {
                 "giorno": found_day,
-                "raccolta": ",".join(found_raccolta)
+                "raccolta": ",".join(found_raccolta),
             }
-            print(month, "Giorno: ", day_num, found_day,
-                  " passano a raccogliere: ", found_raccolta)
-
-            cv2.imshow(winname, cv2.resize(
-                img, (img.shape[1] // 2, img.shape[0] // 2))
+            print(
+                month,
+                "Giorno: ",
+                day_num,
+                found_day,
+                " passano a raccogliere: ",
+                found_raccolta,
             )
+
+            cv2.imshow(winname, cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2)))
             k = cv2.waitKey(1)
-            if k == ord('q'):
+            if k == ord("q"):
                 break
 
             if day_num >= num_days:
-                print('End of month')
+                print("End of month")
+                break
+
+        if DEBUG:
+            break
+
+    return data
+
+
+def _process_frame(crop: np.ndarray, ocr_conf, pre_process: bool = False):
+    crop = crop.copy()
+
+    if pre_process:
+        crop = cv2.threshold(crop, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+    # perform OCR
+    try:
+        details = pytesseract.image_to_data(
+            crop, output_type=Output.DICT, config=ocr_conf, lang="ita"
+        )
+    except Exception as e:
+        print("Unable to extract some data!", e)
+        return None
+
+    # Get detection details
+    # texts = details["text"]
+    confs = details["conf"]
+    # bboxes_top_coords = details["top"]
+    # bboxes_left_coords = details["left"]
+    # bboxes_width = details["width"]
+    # bboxes_height = details["height"]
+
+    # Filter by confidence
+    if max([float(c) for c in confs]) < 0.0:
+        # blank image, or no data found, continue
+        return None
+
+    return details
+
+
+def _get_day(day_crop, conf):
+    details = _process_frame(day_crop, conf, pre_process=True)
+    if not details:
+        return None
+
+    # Get detection details
+    texts = details["text"]
+    confs = details["conf"]
+    bboxes_top_coords = details["top"]
+    bboxes_left_coords = details["left"]
+    bboxes_width = details["width"]
+    bboxes_height = details["height"]
+
+    found_day = None
+
+    # For each detected text
+    for i in range(len(texts)):
+        highlight = False
+
+        text = texts[i]
+        conf = confs[i]
+        try:
+            conf = int(conf)
+        except:
+            print(f'Unable to get confidence as integer, skipping. Value: "{conf}"')
+            conf = 0
+        if conf < min_conf:
+            continue
+
+        # Check if text is a day
+        for d in weekdays:
+            if d in text.lower():
+                # print('Found day: ', d, ' from ', text)
+                highlight = True
+                found_day = d
+                break
+
+        if highlight:
+            x = bboxes_left_coords[i]
+            y = bboxes_top_coords[i]
+            w = bboxes_width[i]
+            h = bboxes_height[i]
+
+            cv2.rectangle(day_crop, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            return found_day
+
+    return None
+
+
+def _get_waste(waste_crop, conf):
+    details = _process_frame(waste_crop, conf, pre_process=True)
+    if not details:
+        return []
+
+    # Get detection details
+    texts = details["text"]
+    confs = details["conf"]
+    bboxes_top_coords = details["top"]
+    bboxes_left_coords = details["left"]
+    bboxes_width = details["width"]
+    bboxes_height = details["height"]
+
+    found_raccolta = []
+
+    # For each detected text
+    for i in range(len(texts)):
+
+        text = texts[i].lower()
+        conf = confs[i]
+        try:
+            conf = int(conf)
+        except:
+            print(f'Unable to get confidence as integer, skipping. Value: "{conf}"')
+            conf = 0
+        if conf < min_conf:
+            continue
+
+        # Check if text is one of the requested keywords
+        raccolta = text in keywords
+        if not raccolta:
+            continue
+
+        if raccolta:
+            found_raccolta.append(text)
+            x = bboxes_left_coords[i]
+            y = bboxes_top_coords[i]
+            w = bboxes_width[i]
+            h = bboxes_height[i]
+
+            cv2.rectangle(waste_crop, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+    return found_raccolta
+
+
+def extract_words(crop_dir: str, words_dir: str):
+
+    day_region = 720  # 950  # up to
+    # waste_region = 1800  # up to 
+
+    data = {}
+
+    directories = sorted(os.listdir(crop_dir), key=len)
+    for d in directories:
+
+        month = months[d]
+        num_days = days_by_months[d]
+
+        data[month] = {}
+
+        dir = os.path.join(crop_dir, d)
+        crops = get_files_from(dir)
+
+        # IL GIORNO 17 c'è uno spazio bianco, così pare almeno, quindi...
+        # assumendo siano ordinati...
+        crops = crops[0:16] + crops[17:]
+
+        day_num = 0
+        for _, crop in enumerate(crops):
+
+            gray_image = np.asarray(Image.open(crop))
+
+            day_crop = gray_image[:, 0:day_region]
+            # waste_crop = gray_image[:, day_region:waste_region]
+            waste_crop = gray_image[:, day_region:]
+
+            found_day = _get_day(day_crop, day_ocr_config)
+            found_raccolta = _get_waste(waste_crop, waste_ocr_config)
+
+            day_num += 1
+            data[month][day_num] = {
+                "giorno": found_day,
+                "raccolta": ",".join(found_raccolta),
+            }
+            print(
+                month,
+                "Giorno: ",
+                day_num,
+                found_day,
+                " passano a raccogliere: ",
+                found_raccolta,
+            )
+
+            cv2.imshow(
+                winname,
+                cv2.resize(
+                    gray_image, (gray_image.shape[1] // 2, gray_image.shape[0] // 2)
+                ),
+            )
+            cv2.imshow(
+                "day",
+                cv2.resize(day_crop, (day_crop.shape[1] // 2, day_crop.shape[0] // 2)),
+            )
+            cv2.imshow(
+                "waste",
+                cv2.resize(
+                    waste_crop, (waste_crop.shape[1] // 2, waste_crop.shape[0] // 2)
+                ),
+            )
+            k = cv2.waitKey(50)
+            if k == ord("q"):
+                break
+
+            if day_num >= num_days:
+                print("End of month")
                 break
 
         if DEBUG:
@@ -399,17 +623,17 @@ def validate(start_data: Dict):
                 return a, v_a
             return b, v_b
         if not a:
-            return b,v_b
+            return b, v_b
         else:
             return b, v_b
 
     def next_forward(val, r):
         i = weekdays_forward_search.index(val)
-        return weekdays_forward_search[(i + r)%len(weekdays_forward_search)]
+        return weekdays_forward_search[(i + r) % len(weekdays_forward_search)]
 
     def next_backward(val, r):
         i = weekdays_backward_search.index(val)
-        return weekdays_backward_search[(i + r)%len(weekdays_backward_search)]
+        return weekdays_backward_search[(i + r) % len(weekdays_backward_search)]
 
     for i, month_name in enumerate(start_data):
         month_data = start_data[month_name]
@@ -423,32 +647,35 @@ def validate(start_data: Dict):
                 # print('Closest idx: ', idx)
                 if idx > i:
                     # go backward in days
-                    r = (idx - i)
+                    r = idx - i
                     new_val = next_backward(val, r)
                 else:
                     # go forward in days
-                    r = (i - idx)
+                    r = i - idx
                     new_val = next_forward(val, r)
 
-                print("Fixing ", t[i], ", with NONE value, to new val: ", new_val)
+                print(f"Fixing {month_name}, day ", t[i], ", with NONE value, to new val: ", new_val)
 
                 month_data[k][__day_str__] = new_val
 
     return start_data
 
+
 def save(data: Dict, dst: str):
-    with open(dst, 'w') as fp:
+    with open(dst, "w") as fp:
         json.dump(data, fp, indent=4)
 
-    print('End of program')
+    print("End of program")
 
 
 def main():
     p, _ = os.path.splitext(curr_file)
+    year = p.split(os.sep)[-1]
+
     base_dir = os.path.join(os.getcwd(), p)
-    destination_dir = os.path.join(base_dir, 'original')
-    crop_dir = os.path.join(base_dir, 'crops')
-    words_dir = os.path.join(base_dir, 'words')
+    destination_dir = os.path.join(base_dir, "original")
+    crop_dir = os.path.join(base_dir, "crops")
+    words_dir = os.path.join(base_dir, "words")
 
     logging.info(f"Writing pages in {destination_dir}")
 
@@ -463,7 +690,7 @@ def main():
 
     data = validate(data)
 
-    save(data, 'result.json')
+    save(data, f"result_{year}.json")
 
 
 if __name__ == "__main__":
