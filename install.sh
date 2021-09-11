@@ -6,3 +6,4 @@ sudo apt install -y libtesseract-dev
 
 pip install pdf2image
 pip install pytesseract
+pip install flask

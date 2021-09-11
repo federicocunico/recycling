@@ -8,10 +8,15 @@ from PIL import Image
 from tqdm import tqdm
 from pdf2image import convert_from_path
 
-os.environ["TESSDATA_PREFIX"] = os.getcwd()
+os.environ["TESSDATA_PREFIX"] = os.path.join(
+    os.getcwd(), "ocr"
+)  # directory for tesseract pre-trained data
 
 from pytesseract import Output
 import pytesseract
+
+from shared import *
+
 
 # DEBUG CONFIGS
 winname = "window"
@@ -19,70 +24,7 @@ DEBUG = False
 
 # PDF CONFIGS
 curr_file = os.path.join("data", "2021.pdf")
-months = {
-    "0": "01_Gennaio",  # "Gennaio",
-    "1": "02_Febbraio",  # "Febbraio",
-    "2": "03_Marzo",  # "Marzo",
-    "3": "04_Aprile",  # "Aprile",
-    "4": "05_Maggio",  # "Maggio",
-    "5": "06_Giugno",  # "Giugno",
-    "6": "07_Luglio",  # "Luglio",
-    "7": "08_Agosto",  # "Agosto",
-    "8": "09_Settembre",  # "Settembre",
-    "9": "10_Ottobre",  # "Ottobre",
-    "10": "11_Novembre",  # "Novembre",
-    "11": "12_Dicembre",  # "Dicembre",
-}
 
-days_by_months = {
-    "0": 31,
-    "1": 29,  # Always extract, eventually do not use.
-    "2": 31,
-    "3": 30,
-    "4": 31,
-    "5": 30,
-    "6": 31,
-    "7": 31,
-    "8": 30,
-    "9": 31,
-    "10": 30,
-    "11": 31,
-}
-
-keywords = ["umido", "secco", "plastica", "carta", "verde"]
-
-weekdays = [
-    "lunedì",
-    "lunedi",
-    "martedì",
-    "martedi",
-    "mercoledì",
-    "mercoledi",
-    "giovedì",
-    "giovedi",
-    "venerdì",
-    "venerdi",
-    "sabato",
-    "domenica",
-]
-weekdays_forward_search = [
-    "lunedì",
-    "martedì",
-    "mercoledì",
-    "giovedì",
-    "venerdì",
-    "sabato",
-    "domenica",
-]
-weekdays_backward_search = [
-    "domenica",
-    "sabato",
-    "venerdì",
-    "giovedì",
-    "mercoledì",
-    "martedì",
-    "lunedì",
-]
 
 # OCR CONFIGS
 # docs:
@@ -111,6 +53,7 @@ weekdays_backward_search = [
 
 day_ocr_config = r"--oem 3 --psm 3 --dpi 300"
 waste_ocr_config = r"--oem 3 --psm 7 --dpi 300"
+find_most_ocr_config = r"--oem 3 --psm 11 --dpi 300"
 min_conf = 0
 
 
@@ -488,15 +431,18 @@ def _get_waste(waste_crop, conf):
     return found_raccolta
 
 
-def extract_words(crop_dir: str, words_dir: str):
+def extract_words(crop_dir: str, visualize: bool = False):
 
     day_region = 720  # 950  # up to
-    # waste_region = 1800  # up to 
+    # waste_region = 1800  # up to
 
     data = {}
 
     directories = sorted(os.listdir(crop_dir), key=len)
     for d in directories:
+
+        # if d != "2":
+        #     continue
 
         month = months[d]
         num_days = days_by_months[d]
@@ -521,6 +467,12 @@ def extract_words(crop_dir: str, words_dir: str):
 
             found_day = _get_day(day_crop, day_ocr_config)
             found_raccolta = _get_waste(waste_crop, waste_ocr_config)
+            if not found_raccolta:
+                # check more accurately
+                # check = waste_crop[waste_crop<255]
+                found_raccolta = _get_waste(gray_image, find_most_ocr_config)
+                if found_raccolta:
+                    print("Found with fallback:  ", end="")
 
             day_num += 1
             data[month][day_num] = {
@@ -536,25 +488,26 @@ def extract_words(crop_dir: str, words_dir: str):
                 found_raccolta,
             )
 
-            cv2.imshow(
-                winname,
-                cv2.resize(
-                    gray_image, (gray_image.shape[1] // 2, gray_image.shape[0] // 2)
-                ),
-            )
-            cv2.imshow(
-                "day",
-                cv2.resize(day_crop, (day_crop.shape[1] // 2, day_crop.shape[0] // 2)),
-            )
-            cv2.imshow(
-                "waste",
-                cv2.resize(
-                    waste_crop, (waste_crop.shape[1] // 2, waste_crop.shape[0] // 2)
-                ),
-            )
-            k = cv2.waitKey(50)
-            if k == ord("q"):
-                break
+            if visualize:
+                cv2.imshow(
+                    winname,
+                    cv2.resize(
+                        gray_image, (gray_image.shape[1] // 2, gray_image.shape[0] // 2)
+                    ),
+                )
+                cv2.imshow(
+                    "day",
+                    cv2.resize(day_crop, (day_crop.shape[1] // 2, day_crop.shape[0] // 2)),
+                )
+                cv2.imshow(
+                    "waste",
+                    cv2.resize(
+                        waste_crop, (waste_crop.shape[1] // 2, waste_crop.shape[0] // 2)
+                    ),
+                )
+                k = cv2.waitKey(50)
+                if k == ord("q"):
+                    break
 
             if day_num >= num_days:
                 print("End of month")
@@ -654,7 +607,12 @@ def validate(start_data: Dict):
                     r = i - idx
                     new_val = next_forward(val, r)
 
-                print(f"Fixing {month_name}, day ", t[i], ", with NONE value, to new val: ", new_val)
+                print(
+                    f"Fixing {month_name}, day ",
+                    t[i],
+                    ", with NONE value, to new val: ",
+                    new_val,
+                )
 
                 month_data[k][__day_str__] = new_val
 
@@ -683,7 +641,7 @@ def main():
 
     extract_crops(destination_dir, crop_dir)
 
-    data = extract_words(crop_dir, words_dir)
+    data = extract_words(crop_dir, visualize=True)
 
     # with open('result.json', 'r') as fp:
     #     data = json.load(fp)
